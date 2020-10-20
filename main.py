@@ -4,7 +4,13 @@ from time import sleep, time
 from config import WIDTH, HEIGHT, SCREEN_DIMS, FPS, BLACK, N_STARS, PLAYER_SENSITIVITY
 from typing import Dict, Union
 from utils import sleep_fps
-from sprites import Ship, Sprite, Star
+from sprites import Ship, Sprite, Star, Explosion
+from argparse import ArgumentParser
+
+parser = ArgumentParser()
+parser.add_argument("-d", "--debug", action="store_true", default=False)
+args = parser.parse_args()
+DEBUG = args.debug
 
 screen = pygame.display.set_mode(SCREEN_DIMS)  # Setting Screen
 pygame.display.set_caption("Asteroids")  # Window Name
@@ -17,6 +23,9 @@ screen.fill(BLACK)
 ship = Ship(screen)
 stars = [Star(screen) for _ in range(N_STARS)]
 sprites = [ship] + stars
+
+particles = Explosion(screen, coordinates=ship._get_center(ship.coordinates)).explode()
+sprites += particles
 
 assert all(
     [isinstance(obj, Sprite) for obj in sprites]
@@ -39,8 +48,13 @@ while True:
                 user["rotate"] = -PLAYER_SENSITIVITY
             if event.key == pygame.K_UP:
                 user["push"] = True
+            if event.key == pygame.K_SPACE:
+                missile = ship.shoot()
+                if missile:
+                    sprites.append(missile)
     # update screen according to changes
     screen.fill(BLACK)
+
     sprites = [
         sprite.update(user) for sprite in sprites
     ]  # apply update() to all sprites

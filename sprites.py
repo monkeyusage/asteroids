@@ -1,6 +1,20 @@
 import numpy as np
 import pygame
-from config import WIDTH, HEIGHT, WHITE, YELLOW, PLAYER_COORD, PLAYER_SPEED, FRICTION, STAR_SIZE
+from config import (
+    WIDTH,
+    HEIGHT,
+    WHITE,
+    YELLOW,
+    RED,
+    PLAYER_COORD,
+    PLAYER_SPEED,
+    FRICTION,
+    STAR_SIZE,
+    PARTICLE_SIZE,
+    MISSILE_SPEED,
+    MISSILES_PER_SEC,
+    N_PARTICLES,
+)
 from typing import Dict, Union
 from time import time
 
@@ -20,13 +34,13 @@ class Sprite:
         raise NotImplementedError
 
     def rotate(self, angle: int):
+        self._update_angle(angle)
         center: np.ndarray = Sprite._get_center(
             self.coordinates
         )  # np.array([int, int])
         self.coordinates = Sprite._rotate_polygon(
             self.coordinates, center=center, degrees=angle
         )
-        self._update_angle(angle)
 
     def _update_angle(self, angle: int):
         self.angle += angle
@@ -34,6 +48,11 @@ class Sprite:
             self.angle -= 360
         if self.angle < 0:
             self.angle += 360
+
+    @staticmethod
+    def _get_heading(angle: int) -> np.ndarray:
+        rad = np.deg2rad(angle) - np.pi / 2
+        return np.array([np.cos(rad), np.sin(rad)])
 
     @staticmethod
     def _get_center(coordinates: np.ndarray) -> np.ndarray:
@@ -63,9 +82,11 @@ class Sprite:
 class Ship(Sprite):
     def __init__(self, screen, color=WHITE, coordinates=np.array(PLAYER_COORD)):
         super().__init__(screen, color, coordinates)
-        self.velocity = np.array([0, 0], dtype=float)  # initial force
+        self.inertia = np.array([0, 0], dtype=float)  # initial force
         self.angle = 0
-        self.force = PLAYER_SPEED
+        self.speed = PLAYER_SPEED
+        self.cool_down = False
+        self.last_shot_time = time()
 
     def draw(self):
         pygame.draw.polygon(self.screen, self.color, self.coordinates, 1)
@@ -84,7 +105,7 @@ class Ship(Sprite):
                 angle = user["rotate"]
                 self.rotate(angle)
             if user.get("push"):
-                self.update_velocity()
+                self.update_inertia()
             if user.get("fire"):
                 self.shoot()
         self.accelerate()
@@ -94,36 +115,44 @@ class Ship(Sprite):
 
     def accelerate(self):
         # apply friction
-        self.velocity = np.multiply(self.velocity, FRICTION)
-        self.coordinates = np.add(self.coordinates, self.velocity)
+        self.inertia = np.multiply(self.inertia, FRICTION)
+        self.coordinates = np.add(self.coordinates, self.inertia)
 
-    def update_velocity(self):
-        rad = np.deg2rad(self.angle) - np.pi / 2
-        acceleration = np.array([np.cos(rad) * self.force, np.sin(rad) * self.force])
-        for idx, value in enumerate(self.velocity):
+    def update_inertia(self):
+        acceleration = np.multiply(Sprite._get_heading(self.angle), self.speed)
+        for idx, value in enumerate(self.inertia):
             if value >= 1.5:
-                self.velocity[idx] = 1.5
-        self.velocity = np.add(self.velocity, acceleration)
+                self.inertia[idx] = 1.5
+        self.inertia = np.add(self.inertia, acceleration)
 
     def shoot(self):
-        pass
+        head = self.coordinates[-1]
+        if (time() - self.last_shot_time) > (1 / MISSILES_PER_SEC):
+            self.cool_down = False
+        if not self.cool_down:
+            self.cool_down = True
+            self.last_shot_time = time()
+            return Missile(self.screen, self.angle, coordinates=head)
 
 
 class Missile(Sprite):
-    def __init__(self, screen, velocity, coordinates=(0,0), size=STAR_SIZE):
+    def __init__(self, screen, angle, coordinates=(0, 0), size=STAR_SIZE):
         super().__init__(screen, color=YELLOW, coordinates=(0, 0))
+        self.angle = angle
+        heading = Sprite._get_heading(self.angle)
+        self.direction = np.multiply(heading, MISSILE_SPEED)
         self.coordinates = coordinates
         self.size = size
-        self.velocity = velocity
-        self.speed = 4
-    
-    def update(self):
-        self.coordinates = np.add(self.coordinates, self.velocity)
+
+    def update(self, *args, **kwargs):
+        self.coordinates = np.add(self.coordinates, self.direction).astype("int16")
+        self.draw()
+        return self
 
     def draw(self):
         pygame.draw.circle(self.screen, self.color, self.coordinates, self.size)
 
-        
+
 class Star(Sprite):
     def __init__(self, screen, coordinates=(0, 0), size=STAR_SIZE):
         super().__init__(screen, color=WHITE, coordinates=(0, 0))
@@ -137,9 +166,39 @@ class Star(Sprite):
         self.coordinates = coordinates
 
     def update(self, *args, **kwargs):
-        if np.random.randint(0, 10):
+        if np.random.randint(0, 100):
             self.draw()
         return self
 
     def draw(self):
         pygame.draw.circle(self.screen, self.color, self.coordinates, self.size)
+
+
+class Particle(Sprite):
+    def __init__(
+        self, screen, coordinates=(0, 0), color=RED, particle_size=PARTICLE_SIZE
+    ):
+        super().__init__(screen, color=color, coordinates=coordinates)
+        heading: np.ndarray = Sprite._get_heading(self.angle)
+        self.direction = np.multiply(heading, 10)
+        self.coordinates = coordinates
+        self.color = color
+        self.particle_size = particle_size
+
+    def update(self, *args, **kwargs):
+        self.coordinates = np.add(self.coordinates, self.direction).astype("int16")
+        self.draw()
+        return self
+
+    def draw(self):
+        pygame.draw.circle(
+            self.screen, self.color, self.coordinates, self.particle_size
+        )
+
+
+class Explosion:
+    def __init__(self, screen, coordinates):
+        self.particles = [Particle(screen, coordinates) for _ in range(N_PARTICLES)]
+
+    def explode(self):
+        return self.particles
