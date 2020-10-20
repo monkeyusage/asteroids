@@ -14,13 +14,14 @@ from config import (
     MISSILE_SPEED,
     MISSILES_PER_SEC,
     N_PARTICLES,
+    SCREEN_DIMS,
 )
 from typing import Dict, Union
 from time import time
 
 
 class Sprite:
-    def __init__(self, screen, color, coordinates):
+    def __init__(self, screen, coordinates, color):
         self.screen = screen
         self.color = color
         self.coordinates = coordinates
@@ -48,6 +49,18 @@ class Sprite:
             self.angle -= 360
         if self.angle < 0:
             self.angle += 360
+
+    def _polygon_collision(self) -> bool:
+        if any(Sprite._is_out(point) for point in self.coordinates):
+            self.display = False
+            return True
+        return False
+
+    @staticmethod
+    def _is_out(point: np.ndarray) -> bool:
+        if (0 < point[0] < SCREEN_DIMS[0]) and (0 < point[1] < SCREEN_DIMS[1]):
+            return False
+        return True
 
     @staticmethod
     def _get_heading(angle: int) -> np.ndarray:
@@ -80,8 +93,8 @@ class Sprite:
 
 
 class Ship(Sprite):
-    def __init__(self, screen, color=WHITE, coordinates=np.array(PLAYER_COORD)):
-        super().__init__(screen, color, coordinates)
+    def __init__(self, screen, coordinates=np.array(PLAYER_COORD), color=WHITE):
+        super().__init__(screen, coordinates=coordinates, color=color)
         self.inertia = np.array([0, 0], dtype=float)  # initial force
         self.angle = 0
         self.speed = PLAYER_SPEED
@@ -100,32 +113,35 @@ class Ship(Sprite):
         Returns:
             Ship: applies changes on screen and returns self object for reuse in next iteration
         """
-        if user:
-            if user.get("rotate"):
-                angle = user["rotate"]
-                self.rotate(angle)
-            if user.get("push"):
-                self.update_inertia()
-            if user.get("fire"):
-                self.shoot()
-        self.accelerate()
-        self.draw()
-        self.missiles = None
+        self._polygon_collision()
+        if self.display:
+            if user:
+                if user.get("rotate"):
+                    angle = user["rotate"]
+                    self.rotate(angle)
+                if user.get("push"):
+                    self.update_inertia()
+                if user.get("fire"):
+                    self.shoot()
+            self.accelerate()
+            self.draw()
         return self
 
-    def accelerate(self):
+    def accelerate(self) -> None:
         # apply friction
+        if (self.inertia == 0).all():
+            return
         self.inertia = np.multiply(self.inertia, FRICTION)
         self.coordinates = np.add(self.coordinates, self.inertia)
 
-    def update_inertia(self):
+    def update_inertia(self) -> None:
         acceleration = np.multiply(Sprite._get_heading(self.angle), self.speed)
         for idx, value in enumerate(self.inertia):
             if value >= 1.5:
                 self.inertia[idx] = 1.5
         self.inertia = np.add(self.inertia, acceleration)
 
-    def shoot(self):
+    def shoot(self) -> Sprite:
         head = self.coordinates[-1]
         if (time() - self.last_shot_time) > (1 / MISSILES_PER_SEC):
             self.cool_down = False
@@ -136,8 +152,8 @@ class Ship(Sprite):
 
 
 class Missile(Sprite):
-    def __init__(self, screen, angle, coordinates=(0, 0), size=STAR_SIZE):
-        super().__init__(screen, color=YELLOW, coordinates=(0, 0))
+    def __init__(self, screen, angle, coordinates, size=STAR_SIZE):
+        super().__init__(screen, coordinates, color=YELLOW)
         self.angle = angle
         heading = Sprite._get_heading(self.angle)
         self.direction = np.multiply(heading, MISSILE_SPEED)
@@ -145,8 +161,11 @@ class Missile(Sprite):
         self.size = size
 
     def update(self, *args, **kwargs):
-        self.coordinates = np.add(self.coordinates, self.direction).astype("int16")
-        self.draw()
+        if Missile._is_out(self.coordinates):
+            self.display = False
+        if self.display:
+            self.coordinates = np.add(self.coordinates, self.direction).astype("int16")
+            self.draw()
         return self
 
     def draw(self):
@@ -155,7 +174,7 @@ class Missile(Sprite):
 
 class Star(Sprite):
     def __init__(self, screen, coordinates=(0, 0), size=STAR_SIZE):
-        super().__init__(screen, color=WHITE, coordinates=(0, 0))
+        super().__init__(screen, coordinates, color=WHITE)
         self.set_coord()
         self.size = size
 
@@ -178,7 +197,7 @@ class Particle(Sprite):
     def __init__(
         self, screen, coordinates=(0, 0), color=RED, particle_size=PARTICLE_SIZE
     ):
-        super().__init__(screen, color=color, coordinates=coordinates)
+        super().__init__(screen, coordinates=coordinates, color=color)
         heading: np.ndarray = Sprite._get_heading(self.angle)
         self.direction = np.multiply(heading, 10)
         self.coordinates = coordinates
@@ -186,8 +205,11 @@ class Particle(Sprite):
         self.particle_size = particle_size
 
     def update(self, *args, **kwargs):
-        self.coordinates = np.add(self.coordinates, self.direction).astype("int16")
-        self.draw()
+        if Particle._is_out(self.coordinates):
+            self.display = False
+        if self.display:
+            self.coordinates = np.add(self.coordinates, self.direction).astype("int16")
+            self.draw()
         return self
 
     def draw(self):

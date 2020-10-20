@@ -24,9 +24,6 @@ ship = Ship(screen)
 stars = [Star(screen) for _ in range(N_STARS)]
 sprites = [ship] + stars
 
-particles = Explosion(screen, coordinates=ship._get_center(ship.coordinates)).explode()
-sprites += particles
-
 assert all(
     [isinstance(obj, Sprite) for obj in sprites]
 ), "Inserted non sprite object into sprite list"
@@ -54,10 +51,12 @@ while True:
                     sprites.append(missile)
     # update screen according to changes
     screen.fill(BLACK)
-
     sprites = [
         sprite.update(user) for sprite in sprites
     ]  # apply update() to all sprites
+    if not ship.display:
+        ship = Ship(screen)
+        sprites.append(ship)
     sprites = [sprite for sprite in sprites if sprite.display]
     sleep_fps(t0)  # control FPS
     pygame.display.update()
