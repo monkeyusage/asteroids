@@ -54,7 +54,7 @@ while True:
     # update screen according to changes
     screen.fill(BLACK)
     sprites = [
-        sprite.update(user) for sprite in sprites
+        sprite.update(user, sprites=sprites) for sprite in sprites
     ]  # apply update() to all sprites
     if not ship.display:
         ship = Ship(screen)
@@ -62,14 +62,17 @@ while True:
         solid_sprites.append(ship)
     
     updated_solids = []
+    # remove dead solids from their list and explode them
     for sprite in solid_sprites:
         if sprite.dead:
+            sprite.display = False
             coordinates = Sprite._get_center(sprite.coordinates)
             particles = Explosion(screen, coordinates).explode()
             sprites += particles
         else:
             updated_solids.append(sprite)
     solid_sprites = updated_solids
+    # remove non displayable sprites from update list
     sprites = [sprite for sprite in sprites if sprite.display]
     sleep_fps(t0)  # control FPS
     pygame.display.update()

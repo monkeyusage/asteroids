@@ -4,6 +4,9 @@ from config import *
 from typing import Dict, Union, List
 from random import choices, choice
 from time import time
+from utils import is_point
+from shapely.geometry import Point
+from shapely.geometry.polygon import Polygon
 
 
 class Sprite:
@@ -79,77 +82,6 @@ class Sprite:
         )
 
 
-class SolidSprite(Sprite):
-    def __init__(self, screen, coordinates, color):
-        super().__init__(screen, coordinates=coordinates, color=color)
-        self.inertia = np.array([0, 0], dtype=float)
-        self.angle = 0
-        self.dead = False
-
-    def accelerate(self) -> None:
-        if (self.inertia == 0).all():
-            return
-        self.coordinates = np.add(self.coordinates, self.inertia)
-
-    def draw(self):
-        pygame.draw.polygon(self.screen, self.color, self.coordinates, 1)
-    
-
-class Ship(SolidSprite):
-    def __init__(self, screen, coordinates=np.array(PLAYER_COORD), color=WHITE):
-        super().__init__(screen, coordinates=coordinates, color=color)
-        self.inertia = np.array([0, 0], dtype=float)  # initial force
-        self.angle = 0
-        self.speed = PLAYER_SPEED
-        self.max_inertia = PLAYER_MAX_INERTIA
-        self.cool_down = False
-        self.last_shot_time = time()
-
-    def update(self, user: Dict[str, Union[bool, int]] = {}, *args, **kwargs):
-        """Update information based on environment and user input
-
-        Args:
-            user (Dict[str, Union[bool, int]], optional): User input. Defaults to {}.
-
-        Returns:
-            Ship: applies changes on screen and returns self object for reuse in next iteration
-        """
-        self._polygon_collision()
-        if self.display:
-            if user:
-                if user.get("rotate"):
-                    angle = user["rotate"]
-                    self.rotate(angle)
-                if user.get("push"):
-                    self.update_inertia()
-                if user.get("fire"):
-                    self.shoot()
-            self.inertia = np.multiply(self.inertia, FRICTION)
-            self.accelerate()
-            self.draw()
-        else:
-            self.dead = True
-        return self
-
-    def update_inertia(self) -> None:
-        acceleration = np.multiply(Sprite._get_heading(self.angle), self.speed)
-        self.inertia = np.add(self.inertia, acceleration)
-        for idx, value in enumerate(self.inertia):
-            if self.max_inertia <= value:
-                self.inertia[idx] = self.max_inertia
-            if value <= -self.max_inertia:
-                self.inertia[idx] = -self.max_inertia
-
-    def shoot(self) -> Sprite:
-        head = self.coordinates[-1]
-        if (time() - self.last_shot_time) > (1 / MISSILES_PER_SEC):
-            self.cool_down = False
-        if not self.cool_down:
-            self.cool_down = True
-            self.last_shot_time = time()
-            return Missile(self.screen, self.angle, coordinates=head)
-
-
 class Missile(Sprite):
     def __init__(self, screen, angle, coordinates, size=STAR_SIZE):
         super().__init__(screen, coordinates, color=YELLOW)
@@ -214,6 +146,41 @@ class Explosion:
         return self.particles
 
 
+class SolidSprite(Sprite):
+    def __init__(self, screen, coordinates, color):
+        super().__init__(screen, coordinates=coordinates, color=color)
+        self.inertia = np.array([0, 0], dtype=float)
+        self.angle = 0
+        self.dead = False
+        self.dangerous = []
+
+    def accelerate(self) -> None:
+        if (self.inertia == 0).all():
+            return
+        self.coordinates = np.add(self.coordinates, self.inertia)
+
+    def check_collision(self, sprites:Sprite):
+        dangerous_objects = [sprite for sprite in sprites if type(sprite) in self.dangerous]
+        polygon = Polygon(self.coordinates)
+        for obj in dangerous_objects:
+            coords = obj.coordinates
+            if is_point(coords): # if coordinates is a single point than do not iterate
+                self.check_point(coords, polygon)
+                continue
+            for point in coords:
+                self.check_point(point, polygon)
+            if self.dead:
+                return
+
+    def check_point(self, point, polygon):
+        p = Point(point)
+        if polygon.contains(p):
+            self.dead = True
+
+    def draw(self):
+        pygame.draw.polygon(self.screen, self.color, self.coordinates, 1)
+
+
 class Enemy(SolidSprite):
     def __init__(self, screen, coordinates=(0, 0), color=WHITE, size=ENEMY_SIZE):
         super().__init__(screen, coordinates=coordinates, color=color)
@@ -221,6 +188,7 @@ class Enemy(SolidSprite):
         self.radius = self.size // 2
         self.coordinates = self.init_polygon(center=coordinates)
         self.inertia = np.random.randint(low=-2, high=2, size=(2), dtype="int16")
+        self.dangerous = [Missile]
 
     def init_polygon(self, center):
         n_points = choice([4, 5, 6, 10])
@@ -238,6 +206,7 @@ class Enemy(SolidSprite):
 
     def update(self, *args, **kwargs):
         self._polygon_collision()
+        self.check_collision(kwargs["sprites"])
         if self.display:
             self.accelerate()
             self.draw()
@@ -273,3 +242,60 @@ class Spawner():
     def spawn(self):
         spawns = choices(self.game_map, k=self.n_enemies)
         return [Enemy(self.screen, spawn) for spawn in spawns]
+
+
+class Ship(SolidSprite):
+    def __init__(self, screen, coordinates=np.array(PLAYER_COORD), color=WHITE):
+        super().__init__(screen, coordinates=coordinates, color=color)
+        self.inertia = np.array([0, 0], dtype=float)  # initial force
+        self.angle = 0
+        self.speed = PLAYER_SPEED
+        self.max_inertia = PLAYER_MAX_INERTIA
+        self.cool_down = False
+        self.last_shot_time = time()
+        self.dangerous = [Enemy]
+
+    def update(self, user: Dict[str, Union[bool, int]] = {}, *args, **kwargs):
+        """Update information based on environment and user input
+
+        Args:
+            user (Dict[str, Union[bool, int]], optional): User input. Defaults to {}.
+
+        Returns:
+            Ship: applies changes on screen and returns self object for reuse in next iteration
+        """
+        self._polygon_collision()
+        self.check_collision(kwargs["sprites"])
+        if self.display:
+            if user:
+                if user.get("rotate"):
+                    angle = user["rotate"]
+                    self.rotate(angle)
+                if user.get("push"):
+                    self.update_inertia()
+                if user.get("fire"):
+                    self.shoot()
+            self.inertia = np.multiply(self.inertia, FRICTION)
+            self.accelerate()
+            self.draw()
+        else:
+            self.dead = True
+        return self
+
+    def update_inertia(self) -> None:
+        acceleration = np.multiply(Sprite._get_heading(self.angle), self.speed)
+        self.inertia = np.add(self.inertia, acceleration)
+        for idx, value in enumerate(self.inertia):
+            if self.max_inertia <= value:
+                self.inertia[idx] = self.max_inertia
+            if value <= -self.max_inertia:
+                self.inertia[idx] = -self.max_inertia
+
+    def shoot(self) -> Sprite:
+        head = self.coordinates[-1]
+        if (time() - self.last_shot_time) > (1 / MISSILES_PER_SEC):
+            self.cool_down = False
+        if not self.cool_down:
+            self.cool_down = True
+            self.last_shot_time = time()
+            return Missile(self.screen, self.angle, coordinates=head)
