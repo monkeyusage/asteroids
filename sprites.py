@@ -1,22 +1,8 @@
 import numpy as np
 import pygame
-from config import (
-    WIDTH,
-    HEIGHT,
-    WHITE,
-    YELLOW,
-    RED,
-    PLAYER_COORD,
-    PLAYER_SPEED,
-    FRICTION,
-    STAR_SIZE,
-    PARTICLE_SIZE,
-    MISSILE_SPEED,
-    MISSILES_PER_SEC,
-    N_PARTICLES,
-    SCREEN_DIMS,
-)
-from typing import Dict, Union
+from config import *
+from typing import Dict, Union, List
+from random import choices, choice
 from time import time
 
 
@@ -27,9 +13,10 @@ class Sprite:
         self.coordinates = coordinates
         self.angle = np.random.randint(0, 360)
         self.display = True
+        self.size = 1
 
-    def draw(self, *args, **kwargs):
-        raise NotImplementedError
+    def draw(self):
+        pygame.draw.circle(self.screen, self.color, self.coordinates, self.size)
 
     def update(self, *args, **kwargs):
         raise NotImplementedError
@@ -92,19 +79,33 @@ class Sprite:
         )
 
 
-class Ship(Sprite):
+class SolidSprite(Sprite):
+    def __init__(self, screen, coordinates, color):
+        super().__init__(screen, coordinates=coordinates, color=color)
+        self.inertia = np.array([0, 0], dtype=float)
+        self.angle = 0
+        self.dead = False
+
+    def accelerate(self) -> None:
+        if (self.inertia == 0).all():
+            return
+        self.coordinates = np.add(self.coordinates, self.inertia)
+
+    def draw(self):
+        pygame.draw.polygon(self.screen, self.color, self.coordinates, 1)
+    
+
+class Ship(SolidSprite):
     def __init__(self, screen, coordinates=np.array(PLAYER_COORD), color=WHITE):
         super().__init__(screen, coordinates=coordinates, color=color)
         self.inertia = np.array([0, 0], dtype=float)  # initial force
         self.angle = 0
         self.speed = PLAYER_SPEED
+        self.max_inertia = PLAYER_MAX_INERTIA
         self.cool_down = False
         self.last_shot_time = time()
 
-    def draw(self):
-        pygame.draw.polygon(self.screen, self.color, self.coordinates, 1)
-
-    def update(self, user: Dict[str, Union[bool, int]] = {}):
+    def update(self, user: Dict[str, Union[bool, int]] = {}, *args, **kwargs):
         """Update information based on environment and user input
 
         Args:
@@ -123,23 +124,21 @@ class Ship(Sprite):
                     self.update_inertia()
                 if user.get("fire"):
                     self.shoot()
+            self.inertia = np.multiply(self.inertia, FRICTION)
             self.accelerate()
             self.draw()
+        else:
+            self.dead = True
         return self
-
-    def accelerate(self) -> None:
-        # apply friction
-        if (self.inertia == 0).all():
-            return
-        self.inertia = np.multiply(self.inertia, FRICTION)
-        self.coordinates = np.add(self.coordinates, self.inertia)
 
     def update_inertia(self) -> None:
         acceleration = np.multiply(Sprite._get_heading(self.angle), self.speed)
-        for idx, value in enumerate(self.inertia):
-            if value >= 1.5:
-                self.inertia[idx] = 1.5
         self.inertia = np.add(self.inertia, acceleration)
+        for idx, value in enumerate(self.inertia):
+            if self.max_inertia <= value:
+                self.inertia[idx] = self.max_inertia
+            if value <= -self.max_inertia:
+                self.inertia[idx] = -self.max_inertia
 
     def shoot(self) -> Sprite:
         head = self.coordinates[-1]
@@ -168,9 +167,6 @@ class Missile(Sprite):
             self.draw()
         return self
 
-    def draw(self):
-        pygame.draw.circle(self.screen, self.color, self.coordinates, self.size)
-
 
 class Star(Sprite):
     def __init__(self, screen, coordinates=(0, 0), size=STAR_SIZE):
@@ -189,20 +185,17 @@ class Star(Sprite):
             self.draw()
         return self
 
-    def draw(self):
-        pygame.draw.circle(self.screen, self.color, self.coordinates, self.size)
-
 
 class Particle(Sprite):
     def __init__(
-        self, screen, coordinates=(0, 0), color=RED, particle_size=PARTICLE_SIZE
+        self, screen, coordinates=(0, 0), color=RED, size=PARTICLE_SIZE
     ):
         super().__init__(screen, coordinates=coordinates, color=color)
         heading: np.ndarray = Sprite._get_heading(self.angle)
         self.direction = np.multiply(heading, 10)
         self.coordinates = coordinates
         self.color = color
-        self.particle_size = particle_size
+        self.size = size
 
     def update(self, *args, **kwargs):
         if Particle._is_out(self.coordinates):
@@ -212,11 +205,6 @@ class Particle(Sprite):
             self.draw()
         return self
 
-    def draw(self):
-        pygame.draw.circle(
-            self.screen, self.color, self.coordinates, self.particle_size
-        )
-
 
 class Explosion:
     def __init__(self, screen, coordinates):
@@ -224,3 +212,64 @@ class Explosion:
 
     def explode(self):
         return self.particles
+
+
+class Enemy(SolidSprite):
+    def __init__(self, screen, coordinates=(0, 0), color=WHITE, size=ENEMY_SIZE):
+        super().__init__(screen, coordinates=coordinates, color=color)
+        self.size = size
+        self.radius = self.size // 2
+        self.coordinates = self.init_polygon(center=coordinates)
+        self.inertia = np.random.randint(low=-2, high=2, size=(2), dtype="int16")
+
+    def init_polygon(self, center):
+        n_points = choice([4, 5, 6, 10])
+        points = []
+        angle = 0
+        radians = np.deg2rad(angle)
+        for _ in range(n_points):
+            xpos = center[0] + self.radius * np.cos(radians)
+            ypos = center[1] + self.radius * np.sin(radians)
+            point = [int(xpos), int(ypos)]
+            points.append(point)
+            angle += (360 // n_points) - 1
+            radians = np.deg2rad(angle)
+        return points
+
+    def update(self, *args, **kwargs):
+        self._polygon_collision()
+        if self.display:
+            self.accelerate()
+            self.draw()
+        else:
+            self.dead = True
+        return self
+
+
+class Spawner():
+    def __init__(self, screen, n_enemies:int=10):
+        self.screen = screen
+        self.size = ENEMY_SIZE
+        self.n_enemies = n_enemies
+        self.game_map = self.create_map()
+        if len(self.game_map) <= self.n_enemies:
+            raise ValueError("Too many enemies for their given size\nEither reduce size or number of enemies")
+        
+    def create_map(self):
+        game_map : List[List[int, int]] = [] # store enemy positions here
+        # compute all possible x and y coordinates and create points from them
+        xs = np.linspace(self.size, WIDTH - self.size, WIDTH // self.size - 1, dtype="int16")
+        ys = np.linspace(self.size, HEIGHT - self.size, HEIGHT // self.size - 1, dtype="int16")
+        # compute collision square values
+        min_x, min_y = np.subtract(CENTER, self.size)
+        max_x, max_y = np.add(CENTER, self.size)
+        for xpos in xs:
+            for ypos in ys:
+                # filter out possible positions that could collide with player spawn
+                if ((xpos < min_x) or (xpos > max_x)) or ((ypos < min_y) or (ypos > max_y)):
+                    game_map.append([xpos, ypos])
+        return game_map
+
+    def spawn(self):
+        spawns = choices(self.game_map, k=self.n_enemies)
+        return [Enemy(self.screen, spawn) for spawn in spawns]

@@ -1,10 +1,10 @@
 import pygame
 import numpy as np
 from time import sleep, time
-from config import WIDTH, HEIGHT, SCREEN_DIMS, FPS, BLACK, N_STARS, PLAYER_SENSITIVITY
+from config import *
 from typing import Dict, Union
 from utils import sleep_fps
-from sprites import Ship, Sprite, Star, Explosion
+from sprites import Ship, Sprite, Star, Explosion, Spawner
 from argparse import ArgumentParser
 
 parser = ArgumentParser()
@@ -20,9 +20,11 @@ pygame.mixer.music.load("sounds/tetris.mp3")
 pygame.mixer.music.play(-1, 0.0)
 screen.fill(BLACK)
 
-ship = Ship(screen)
 stars = [Star(screen) for _ in range(N_STARS)]
-sprites = [ship] + stars
+ship = Ship(screen)
+enemies = Spawner(screen).spawn()
+sprites = [ship, *enemies] + stars
+solid_sprites = [ship, *enemies]
 
 assert all(
     [isinstance(obj, Sprite) for obj in sprites]
@@ -57,6 +59,17 @@ while True:
     if not ship.display:
         ship = Ship(screen)
         sprites.append(ship)
+        solid_sprites.append(ship)
+    
+    updated_solids = []
+    for sprite in solid_sprites:
+        if sprite.dead:
+            coordinates = Sprite._get_center(sprite.coordinates)
+            particles = Explosion(screen, coordinates).explode()
+            sprites += particles
+        else:
+            updated_solids.append(sprite)
+    solid_sprites = updated_solids
     sprites = [sprite for sprite in sprites if sprite.display]
     sleep_fps(t0)  # control FPS
     pygame.display.update()
