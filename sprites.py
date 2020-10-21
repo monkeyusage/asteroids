@@ -101,7 +101,7 @@ class Missile(Sprite):
 
 
 class Star(Sprite):
-    def __init__(self, screen, coordinates=(0, 0), size=STAR_SIZE):
+    def __init__(self, screen, coordinates=np.array([0, 0]), size=STAR_SIZE):
         super().__init__(screen, coordinates, color=WHITE)
         self.set_coord()
         self.size = size
@@ -120,7 +120,7 @@ class Star(Sprite):
 
 class Particle(Sprite):
     def __init__(
-        self, screen, coordinates=(0, 0), color=RED, size=PARTICLE_SIZE
+        self, screen, coordinates=np.array([0, 0]), color=RED, size=PARTICLE_SIZE
     ):
         super().__init__(screen, coordinates=coordinates, color=color)
         heading: np.ndarray = Sprite._get_heading(self.angle)
@@ -182,7 +182,7 @@ class SolidSprite(Sprite):
 
 
 class Enemy(SolidSprite):
-    def __init__(self, screen, coordinates=(0, 0), color=WHITE, size=ENEMY_SIZE):
+    def __init__(self, screen, coordinates=np.array([0, 0]), color=WHITE, size=ENEMY_SIZE):
         super().__init__(screen, coordinates=coordinates, color=color)
         self.size = size
         self.radius = self.size // 2
@@ -202,7 +202,7 @@ class Enemy(SolidSprite):
             points.append(point)
             angle += (360 // n_points) - 1
             radians = np.deg2rad(angle)
-        return points
+        return np.array(points)
 
     def update(self, *args, **kwargs):
         self._polygon_collision()
