@@ -1,0 +1,7 @@
+next:
+    - make asteroids slide to the other side when the touch the border of the map
+    - do not spawn new asteroids where the player is
+    - implement score counter
+
+backlog:
+    - ...

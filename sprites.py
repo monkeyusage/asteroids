@@ -48,6 +48,8 @@ class Sprite:
 
     @staticmethod
     def _is_out(point: np.ndarray) -> bool:
+        if len(point) > 2:
+            import pdb;pdb.set_trace()
         if (0 < point[0] < SCREEN_DIMS[0]) and (0 < point[1] < SCREEN_DIMS[1]):
             return False
         return True
@@ -165,20 +167,28 @@ class SolidSprite(Sprite):
         for obj in dangerous_objects:
             coords = obj.coordinates
             if is_point(coords): # if coordinates is a single point than do not iterate
-                self.check_point(coords, polygon)
-                continue
-            for point in coords:
-                self.check_point(point, polygon)
-            if self.dead:
-                return
+                self.check_point(coords, polygon)    
+            else:
+                for point in coords:
+                    if self.check_point(point, polygon):
+                        return
 
-    def check_point(self, point, polygon):
+    def check_point(self, point:np.array, polygon: Polygon):
+        if SolidSprite.polygon_contains(point, polygon):
+            self.dead = True
+            self.display = False
+            return True
+        return False
+
+    @staticmethod
+    def polygon_contains(point:np.array, polygon: Polygon):
         p = Point(point)
         if polygon.contains(p):
-            self.dead = True
+            return True
+        return False 
 
-    def draw(self):
-        pygame.draw.polygon(self.screen, self.color, self.coordinates, 1)
+    def draw(self, fill:int=0):
+        pygame.draw.polygon(self.screen, self.color, self.coordinates, fill)
 
 
 class Enemy(SolidSprite):
@@ -209,7 +219,7 @@ class Enemy(SolidSprite):
         self.check_collision(kwargs["sprites"])
         if self.display:
             self.accelerate()
-            self.draw()
+            self.draw(3)
         else:
             self.dead = True
         return self
@@ -241,7 +251,9 @@ class Spawner():
 
     def spawn(self):
         spawns = choices(self.game_map, k=self.n_enemies)
-        return [Enemy(self.screen, spawn) for spawn in spawns]
+        if isinstance(spawns, list):
+            return [Enemy(self.screen, spawn) for spawn in spawns]
+        return [spawns]
 
 
 class Ship(SolidSprite):
@@ -277,7 +289,7 @@ class Ship(SolidSprite):
                     self.shoot()
             self.inertia = np.multiply(self.inertia, FRICTION)
             self.accelerate()
-            self.draw()
+            self.draw(fill=0)
         else:
             self.dead = True
         return self

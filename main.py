@@ -4,7 +4,7 @@ from time import sleep, time
 from config import *
 from typing import Dict, Union
 from utils import sleep_fps
-from sprites import Ship, Sprite, Star, Explosion, Spawner
+from sprites import Ship, Sprite, Star, Explosion, Spawner, Enemy
 from argparse import ArgumentParser
 
 parser = ArgumentParser()
@@ -65,10 +65,12 @@ while True:
     # remove dead solids from their list and explode them
     for sprite in solid_sprites:
         if sprite.dead:
-            sprite.display = False
-            coordinates = Sprite._get_center(sprite.coordinates)
-            particles = Explosion(screen, coordinates).explode()
-            sprites += particles
+            if isinstance(sprite, Enemy):
+                particles = Explosion(screen, Sprite._get_center(sprite.coordinates)).explode()
+                enemies = Spawner(screen, 1).spawn()
+                sprites = [*sprites, *particles]
+                sprites = [*sprites, *enemies]
+                updated_solids = [*updated_solids, *enemies]
         else:
             updated_solids.append(sprite)
     solid_sprites = updated_solids
